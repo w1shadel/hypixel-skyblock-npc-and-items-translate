@@ -34,11 +34,12 @@ public class ModConfig {
 
     public void validate() {
         if (chatTranslationProvider == null) chatTranslationProvider = TranslationProvider.GOOGLE;
+        if (customGasUrl == null) customGasUrl = ""; // ★ここに追加！
         if (mistralModel == null) mistralModel = MistralModel.MISTRAL_LARGE_2512;
         if (openRouterModel == null) openRouterModel = OpenRouterModel.OPENROUTER_FREE;
         if (groqModel == null) groqModel = GroqModel.LLAMA_3_3_70B;
         if (geminiModel == null) geminiModel = GeminiModel.GEMINI_2_5_FLASH;
-        if (targetLanguage == null) targetLanguage = TranslationLanguage.TURKISH;
+        if (targetLanguage == null) targetLanguage = TranslationLanguage.JAPANESE; // JAPANESEに変更
         if (ttsMode == null) ttsMode = TtsMode.NPC_ONLY;
         if (ttsEngine == null) ttsEngine = TtsEngine.GOOGLE_TTS;
         if (ttsSpeed <= 0.1f) ttsSpeed = 1.0f;
@@ -76,8 +77,9 @@ public class ModConfig {
     public OpenRouterModel openRouterModel = OpenRouterModel.OPENROUTER_FREE;
     public GroqModel groqModel = GroqModel.LLAMA_3_3_70B;
     public GeminiModel geminiModel = GeminiModel.GEMINI_2_5_FLASH;
+    public String customGasUrl = "";
     public boolean useGameLanguage = true;
-    public TranslationLanguage targetLanguage = TranslationLanguage.TURKISH;
+    public TranslationLanguage targetLanguage = TranslationLanguage.JAPANESE;
     public boolean autoTranslateChat = false;
     public boolean onlyTranslateNpcChat = true;
     public boolean autoTranslateItems = false;

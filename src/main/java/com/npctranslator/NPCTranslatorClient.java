@@ -38,7 +38,10 @@ import java.util.concurrent.ConcurrentHashMap;
 public class NPCTranslatorClient implements ClientModInitializer {
 
     private static ModConfig config;
-    private static final HttpClient HTTP_CLIENT = HttpClient.newHttpClient();
+    private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
+            .followRedirects(HttpClient.Redirect.ALWAYS)
+            .connectTimeout(java.time.Duration.ofSeconds(5))
+            .build();
     private static final Gson GSON = new Gson();
     public static KeyBinding keyTranslateGoogle;
     public static KeyBinding keyTranslateGemini;
@@ -493,81 +496,33 @@ public class NPCTranslatorClient implements ClientModInitializer {
             String cacheKey = langCode + ":" + content;
             String cached = TRANSLATION_MEMORY_CACHE.get(cacheKey);
             if (cached != null) return cached;
-
-            String encoded = java.net.URLEncoder.encode(content, "UTF-8");
-            String userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
-
-            String[] urls = new String[] {
-                "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=" + langCode + "&dt=t&q=" + encoded,
-                "https://translate.googleapis.com/translate_a/single?client=dict-chrome-ex&sl=auto&tl=" + langCode + "&dt=t&q=" + encoded,
-                "https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=auto&tl=" + langCode + "&q=" + encoded
-            };
-
-            for (String url : urls) {
+            // ConfigからURLを取得（未設定なら従来のエンドポイントへフォールバック）
+            String gasUrl = config.customGasUrl != null ? config.customGasUrl.trim() : "";
+            if (!gasUrl.isEmpty()) {
                 try {
+                    String encodedText = java.net.URLEncoder.encode(content, java.nio.charset.StandardCharsets.UTF_8);
+                    String fullUrl = gasUrl + "?text=" + encodedText + "&target=" + langCode + "&source=en";
                     HttpRequest request = HttpRequest.newBuilder()
-                            .uri(URI.create(url))
-                            .header("User-Agent", userAgent)
-                            .header("Accept", "*/*")
-                            .timeout(java.time.Duration.ofSeconds(4))
+                            .uri(URI.create(fullUrl))
+                            .header("User-Agent", "Mozilla/5.0")
+                            .timeout(java.time.Duration.ofSeconds(6))
                             .GET()
                             .build();
-
                     HttpResponse<String> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
                     if (response.statusCode() == 200) {
-                        String body = response.body();
-                        if (url.contains("clients5.google.com")) {
-                            try {
-                                JsonElement el = GSON.fromJson(body, JsonElement.class);
-                                if (el.isJsonArray()) {
-                                    String res = el.getAsJsonArray().get(0).getAsString();
-                                    TRANSLATION_MEMORY_CACHE.put(cacheKey, res);
-                                    return res;
-                                } else if (el.isJsonPrimitive()) {
-                                    String res = el.getAsString();
-                                    TRANSLATION_MEMORY_CACHE.put(cacheKey, res);
-                                    return res;
-                                }
-                            } catch (Exception ignored) {}
-                        } else {
-                            JsonArray jsonArray = GSON.fromJson(body, JsonArray.class);
-                            JsonArray sentences = jsonArray.get(0).getAsJsonArray();
-                            StringBuilder sb = new StringBuilder();
-                            for (int i = 0; i < sentences.size(); i++) {
-                                sb.append(sentences.get(i).getAsJsonArray().get(0).getAsString());
-                            }
-                            String res = sb.toString();
-                            TRANSLATION_MEMORY_CACHE.put(cacheKey, res);
-                            return res;
+                        String result = response.body();
+                        if (result != null && !result.trim().isEmpty()) {
+                            TRANSLATION_MEMORY_CACHE.put(cacheKey, result);
+                            return result;
                         }
                     }
-                } catch (Exception ignored) {}
-            }
-
-            // Fallback 4: MyMemory free translation API
-            try {
-                String myMemoryUrl = "https://api.mymemory.translated.net/get?q=" + encoded + "&langpair=auto|" + langCode;
-                HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create(myMemoryUrl))
-                        .header("User-Agent", userAgent)
-                        .timeout(java.time.Duration.ofSeconds(4))
-                        .GET()
-                        .build();
-                HttpResponse<String> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
-                if (response.statusCode() == 200) {
-                    JsonObject obj = GSON.fromJson(response.body(), JsonObject.class);
-                    if (obj.has("responseData")) {
-                        String res = obj.getAsJsonObject("responseData").get("translatedText").getAsString();
-                        if (res != null && !res.isEmpty()) {
-                            TRANSLATION_MEMORY_CACHE.put(cacheKey, res);
-                            return res;
-                        }
-                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
                 }
-            } catch (Exception ignored) {}
+            }
+        }
 
-            throw new Exception("Google Translate failed. (All mirror endpoints rate-limited)");
-        } else if (provider == ModConfig.TranslationProvider.GROQ) {
+            else if (provider == ModConfig.TranslationProvider.GROQ) {
             ModConfig.GroqModel[] allModels = ModConfig.GroqModel.values();
             int startIndex = config.groqModel.ordinal();
             int attempts = config.autoFallbackOnLimit ? allModels.length : 1;
@@ -610,7 +565,8 @@ public class NPCTranslatorClient implements ClientModInitializer {
                     throw new Exception("Groq API failed. Status: " + response.statusCode());
                 }
             }
-        } else if (provider == ModConfig.TranslationProvider.GEMINI) {
+        }
+        else if (provider == ModConfig.TranslationProvider.GEMINI) {
             JsonObject jsonBody = new JsonObject();
             
             JsonObject systemInstruction = new JsonObject();
@@ -663,7 +619,8 @@ public class NPCTranslatorClient implements ClientModInitializer {
                     throw new Exception("Gemini API failed. Status: " + response.statusCode());
                 }
             }
-        } else if (provider == ModConfig.TranslationProvider.MISTRAL) {
+        }
+        else if (provider == ModConfig.TranslationProvider.MISTRAL) {
             ModConfig.MistralModel[] allModels = ModConfig.MistralModel.values();
             int startIndex = config.mistralModel.ordinal();
             int attempts = config.autoFallbackOnLimit ? allModels.length : 1;
@@ -706,7 +663,8 @@ public class NPCTranslatorClient implements ClientModInitializer {
                     throw new Exception("Mistral API failed. Status: " + response.statusCode());
                 }
             }
-        } else if (provider == ModConfig.TranslationProvider.OPENROUTER) {
+        }
+        else if (provider == ModConfig.TranslationProvider.OPENROUTER) {
             ModConfig.OpenRouterModel[] allModels = ModConfig.OpenRouterModel.values();
             int startIndex = config.openRouterModel.ordinal();
             int attempts = config.autoFallbackOnLimit ? allModels.length : 1;
